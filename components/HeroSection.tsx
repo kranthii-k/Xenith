@@ -81,7 +81,7 @@ export default function HeroSection() {
         loaded.current[n] = true;
         if (n === 0) draw(0);
       };
-      img.onerror = () => console.warn("[ClaimCheck] missing frame", n);
+      img.onerror = () => console.warn("[Xenon AI] missing frame", n);
       imgs.current[i] = img;
     }
   }, [draw]);
@@ -152,7 +152,7 @@ export default function HeroSection() {
         {/* Canvas */}
         <canvas
           ref={canvasRef}
-          aria-label="ClaimCheck cinematic sequence"
+          aria-label="Xenon AI cinematic sequence"
           style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", display: "block" }}
         />
 
@@ -169,7 +169,7 @@ export default function HeroSection() {
           background: "linear-gradient(to bottom, transparent, #09090B)",
         }} />
 
-        {/* ═══ S1 — ClaimCheck ═══ */}
+        {/* ═══ S1 — Xenon AI ═══ */}
         <motion.div style={{ opacity: s1Op, y: s1Y, position: "absolute", inset: 0,
           display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
           textAlign: "center", zIndex: 10, pointerEvents: "none", padding: "0 24px" }}>
@@ -178,9 +178,9 @@ export default function HeroSection() {
             fontSize: "clamp(3.5rem, 10vw, 9rem)",
             background: "linear-gradient(135deg,#fff 0%,rgba(255,255,255,.55) 100%)",
             WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>
-            Claim
+            Xenon
             <span style={{ background: "linear-gradient(135deg,#7dd3fc,#0ea5e9)",
-              WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>Check</span>
+              WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}> AI</span>
             <span style={{ WebkitTextFillColor: "#0ea5e9" }}>.</span>
           </h1>
           <p style={{ marginTop: 24, fontWeight: 500, letterSpacing: "0.24em",

@@ -2,12 +2,12 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "ClaimCheck — AI-Powered Post-Purchase Claim Integrity Monitor",
+  title: "Xenon AI — AI-Powered Post-Purchase Claim Integrity Monitor",
   description:
-    "ClaimCheck's Claim Integrity Score (CIS) tracks real-time noise, power, and durability metrics — catching manufacturing defects before they destroy your brand.",
-  keywords: ["ClaimCheck", "AI", "claim integrity", "post-purchase", "review monitoring", "NLP", "BERT"],
+    "Xenon AI's Claim Integrity Score (CIS) tracks real-time noise, power, and durability metrics — catching manufacturing defects before they destroy your brand.",
+  keywords: ["Xenon AI", "AI", "claim integrity", "post-purchase", "review monitoring", "NLP", "BERT"],
   openGraph: {
-    title: "ClaimCheck — Stop Flying Blind on Product Claims",
+    title: "Xenon AI — Stop Flying Blind on Product Claims",
     description: "Real-time AI monitoring of post-purchase claim integrity. Catch defects on Day 2, not Day 20.",
     type: "website",
   },

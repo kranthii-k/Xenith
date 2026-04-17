@@ -44,7 +44,7 @@ export default function Navbar() {
             className="font-bold text-sm"
             style={{ letterSpacing: "-0.025em", color: "rgba(255,255,255,0.92)" }}
           >
-            Claim<span style={{ color: "#38bdf8" }}>Check</span>
+            Xenon<span style={{ color: "#38bdf8" }}> AI</span>
           </span>
         </div>
 

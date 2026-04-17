@@ -25,7 +25,7 @@ export default function Footer() {
                 </svg>
               </div>
               <span className="font-bold" style={{ letterSpacing: "-0.02em" }}>
-                Claim<span style={{ color: "#0ea5e9" }}>Check</span>
+                Xenon<span style={{ color: "#0ea5e9" }}> AI</span>
               </span>
             </div>
             <p className="text-sm leading-relaxed" style={{ color: "rgba(255,255,255,0.3)", maxWidth: "28ch" }}>
@@ -90,7 +90,7 @@ export default function Footer() {
           className="mt-12 pt-6 flex flex-col md:flex-row items-center justify-between gap-4 text-xs"
           style={{ borderTop: "1px solid rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.2)" }}
         >
-          <p>© 2025 ClaimCheck. All rights reserved.</p>
+          <p>© 2025 Xenon AI. All rights reserved.</p>
           <div className="flex gap-1 items-center">
             <span
               className="inline-block w-1.5 h-1.5 rounded-full"

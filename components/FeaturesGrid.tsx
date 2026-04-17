@@ -154,7 +154,7 @@ export default function FeaturesGrid() {
             className="mt-4 max-w-lg"
             style={{ color: "rgba(255,255,255,0.4)", fontSize: "1rem", lineHeight: 1.7 }}
           >
-            Every layer of ClaimCheck&apos;s stack is precision-engineered to
+            Every layer of Xenon AI&apos;s stack is precision-engineered to
             surface the truth buried inside star ratings.
           </p>
         </motion.div>
@@ -464,7 +464,7 @@ export default function FeaturesGrid() {
             >
               <Image
                 src="/workflow.jpeg"
-                alt="ClaimCheck system workflow diagram"
+                alt="Xenon AI system workflow diagram"
                 width={1600}
                 height={900}
                 className="w-full h-auto"
