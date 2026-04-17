@@ -1,0 +1,415 @@
+ClaimCheck — AI-Powered Post-Purchase Claim Integrity Monitor
+Hack Malenadu '26 · PS2: Customer Review Intelligence Platform
+"The fan is whisper-quiet." — Atomberg's claim.
+After 18 months in the real world: CIS 91 → 47. ClaimCheck caught it at Month 9.
+
+What is ClaimCheck?
+Brands make claims when they launch products. Customers experience reality after they buy. ClaimCheck sits in between — it reads real customer reviews, tracks how each specific claim holds up month by month, and tells you exactly when reality stopped matching the promise.
+It does not just give you a star rating. It gives you a Claim Integrity Score (CIS) per feature per time window — a single honest number backed by real data.
+Demo product: Atomberg Renesa+ BLDC Fan
+Key finding: "Whisper-quiet BLDC motor" — noise CIS dropped 44 points over 18 months. The problem was detectable 9 months before aggregate star ratings showed any change.
+
+The Core Idea — In Plain Terms
+Most review platforms show you one number: 4.2 stars. That tells you nothing about:
+Which feature people are complaining about
+When the problems started
+Whether it's a temporary bad batch or a systemic decline
+ClaimCheck breaks every review into feature-level signals (noise, power, durability, installation, service, reliability, cooling, value), tracks them across 6 time windows (Month 1 through Month 18), and runs a time-series analysis to detect real decay vs random noise.
+If a product claim is failing, ClaimCheck finds it, names it, and timestamps it.
+
+System Architecture
+┌─────────────────────────────────────────────────────────────────────┐
+│                        DATA SOURCES                                 │
+│   Amazon.in reviews  ──┐                                            │
+│   Flipkart reviews   ──┤──► Scraper Layer                           │
+│   Manual/API upload  ──┘                                            │
+└────────────────────────────────────────────────────────────────────-┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                       PIPELINE LAYER                                │
+│  1. Preprocessor    — fix encoding, emojis, Hinglish, typos         │
+│  2. Deduplicator    — remove exact duplicates and near-duplicates   │
+│  3. Bot Detector    — score and quarantine spam/fake reviews        │
+│  4. Cohort Assigner — bucket each review into M1/M3/M6/.../M18     │
+└─────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                         NLP ENGINE                                  │
+│  1. ABSA Model      — extract (feature, sentiment) per sentence     │
+│  2. Sarcasm Detector— quarantine ambiguous / ironic reviews         │
+└─────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                       ANALYSIS LAYER                                │
+│  1. CIS Calculator  — weighted score per feature per cohort (0–100) │
+│  2. ARIMA Engine    — time-series decay detection + M24 forecast    │
+│  3. Batch-Delta     — week-over-week trend spikes                   │
+│  4. Complaint Cluster — group similar complaints (systemic vs batch)│
+└─────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                      STORAGE & API LAYER                            │
+│  PostgreSQL (6 tables)  ◄──►  FastAPI (7 route groups)             │
+│  Redis (cache)                /api/v1/cis, /trends, /alerts, ...   │
+└─────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                       OUTPUT LAYER                                  │
+│  React Dashboard   — live charts, decay curves, cluster maps        │
+│  PDF Report        — downloadable one-click export                  │
+│  Slack Alert       — fires when CIS drops beyond threshold          │
+│  Email Alert       — same trigger, email format                     │
+└─────────────────────────────────────────────────────────────────────┘
+
+
+Layer-by-Layer Explanation
+Layer 1 — Data Ingestion (Scraper)
+Reviews are scraped from Amazon.in and Flipkart using Scrapy and BeautifulSoup respectively. The scraper is built with three important behaviours:
+Purchase date anchoring: Neither Amazon nor Flipkart exposes the date a customer actually bought the product. We anchor to the product launch date (June 2019 for Atomberg Renesa+) and compute months_since_purchase as the difference between the review date and launch date. This is the only honest approximation — any other approach would be invented data.
+Online/offline fallback: If the internet is unreachable, the scraper automatically falls back to the last cached data file. If no cache exists, it loads a frozen demo CSV. The system always tells you which data source it used.
+Bad data rejection: Reviews written before the product launch date are immediately discarded rather than silently corrupted.
+Key files: scraper/amazon_scraper.py, scraper/flipkart_scraper.py, scraper/run_scraper.py
+
+Layer 2 — Pipeline (Cleaning & Preparation)
+Raw text from Indian e-commerce reviews is messy by nature. The pipeline cleans it in a fixed order:
+Step
+What it does
+Encoding fix
+Repairs garbled characters (mojibake), normalises Unicode
+Emoji conversion
+Converts 😡 → "angry", 👍 → "thumbs up" so BERT can read them
+Hinglish handling
+Detects Devanagari script and transliterates to Latin (ITRANS)
+Typo correction
+Fixes spelling errors while protecting Indian-English words like "lakh", "BLDC", "bijli"
+Deduplication
+SHA-256 for exact duplicates; MinHash with Jaccard similarity ≥ 0.85 for near-duplicates
+Bot detection
+Scores each review on 6 signals (too short, ALL CAPS, repeated phrases, fresh 5-stars, repeat reviewer, substring of another review). Score ≥ 70 → quarantined, never used
+Cohort assignment
+Maps each review's date to a time bucket: M1 (0–45 days from launch), M3, M6, M9, M12, M18
+
+Key files: pipeline/preprocessor.py, pipeline/deduplicator.py, pipeline/bot_detector.py, pipeline/cohort_assigner.py
+
+Layer 3 — NLP Engine
+This is where sentiment intelligence happens. Two components work together:
+ABSA Model (Aspect-Based Sentiment Analysis)
+Instead of asking "is this review positive or negative?", we ask "what does this review say about each specific feature?" Each review is:
+Split into individual sentences
+Each sentence is matched to feature tags using keyword routing (cooling, noise, power, durability, installation, service, reliability, value)
+The matched sentences are run through a multilingual BERT model (nlptown/bert-base-multilingual-uncased-sentiment) which outputs positive / negative / mixed
+We track what % of sentences successfully get routed — if coverage is low, we log a warning
+Sarcasm Detector
+Before any sentiment result is trusted, it goes through a two-stage sarcasm check:
+Stage 1 — Rule-based: Looks for irony phrases ("oh great", "just perfect") combined with negative language; positive superlatives in low-star reviews
+Stage 2 — BERT/star conflict: If BERT says "positive" but the star rating is 1–2, something is wrong
+Flagged reviews go to a separate quarantine table. They are never forced into positive or negative buckets.
+Key files: nlp/absa_model.py, nlp/sarcasm_detector.py, nlp/types.py
+
+Layer 4 — Analysis (Scoring & Decay Detection)
+Claim Integrity Score (CIS)
+For each feature in each time cohort, we compute a weighted score from 0 to 100:
+Positive sentiment → 100 points
+Mixed sentiment → 50 points
+Negative sentiment → 0 points
+Each review is weighted by recency (most recent reviews count more) using the actual review date
+Confidence score from BERT also factors into the weight
+Features are grouped into two tiers:
+Tier 1 (weight 60%): cooling, noise, power, reliability
+Tier 2 (weight 40%): durability, installation, service, value
+The composite CIS combines both tiers.
+ARIMA Decay Engine
+ARIMA is a standard time-series model used to detect meaningful trends vs random fluctuations. For each (product, feature) pair:
+We run an ADF stationarity test first
+If the series is non-stationary, we apply first-order differencing
+We fit ARIMA using automatic order selection (AIC-based)
+A 2-sigma drop from the trend line = confirmed decay
+We project the CIS forward to Month 24
+Honest limitation: When fewer than 4 cohort buckets have data, the system returns a linear estimate clearly tagged insufficient_data: true instead of pretending ARIMA ran.
+Complaint Clustering
+All negative reviews for a feature are grouped by semantic similarity using sentence embeddings (all-MiniLM-L6-v2) and DBSCAN clustering. The system auto-tunes the clustering distance parameter using silhouette score rather than a hardcoded number. Clusters are then classified:
+ISOLATED — fewer than 5 similar complaints, spread randomly
+SYSTEMIC — 5+ similar complaints spanning more than 30 days (real design problem)
+BATCH_LINKED — 5+ similar complaints within 30 days (potential bad production batch)
+Key files: decay/cis_calculator.py, decay/arima_engine.py, decay/complaint_cluster.py, decay/batch_delta.py
+
+Layer 5 — Storage (Database Schema)
+PostgreSQL with 6 tables that form a strict one-way pipeline — data only flows forward:
+reviews_raw         ← raw scraped data, immutable
+    │
+reviews_clean       ← after preprocessing and dedup
+    │
+reviews_analyzed    ← after NLP (feature_tag, sentiment, confidence per sentence)
+    │
+reviews_flagged     ← bot/spam quarantine
+reviews_needs_review← sarcasm/ambiguity quarantine
+    │
+cohort_stats        ← precomputed CIS scores (what the API reads)
+
+Every table has a product_id column — the system is designed to support multiple products, not just Atomberg.
+
+Layer 6 — API (FastAPI)
+7 route groups exposed at /api/v1/:
+Route
+What it does
+/cis
+Returns CIS scores per feature per cohort
+/trends
+Returns batch-delta trend shifts
+/alerts
+Returns triggered alerts (decay, batch spike)
+/ingest
+Accepts new reviews via POST (JSON, CSV, plain text)
+/simulate
+Simulate analysis on a custom review batch
+/report
+Generate and download PDF report
+/flagged
+See what was quarantined and why
+
+A /health endpoint confirms database connectivity.
+
+Layer 7 — Output (Dashboard, Reports, Alerts)
+React Dashboard — 5 views:
+Claim Survival Timeline (D3.js animated decay curve)
+CIS Radar (M1 vs M12 spider chart overlay)
+Batch-Delta panel (week-over-week shifts by feature)
+Complaint Cluster map (ISOLATED / SYSTEMIC / BATCH_LINKED)
+Claim vs Reality (marketed claims side-by-side with measured CIS)
+PDF Report — WeasyPrint-generated, one-click download from the dashboard
+Slack Alerts — webhook-based, fires when CIS drops beyond a configurable threshold
+Email Alerts — same trigger, SMTP-based
+
+Planned Automation Add-ons (n8n)
+The current system is run manually or via scripts. The planned automation layer uses n8n (an open-source workflow automation tool) to make the entire pipeline triggerable from external events:
+TRIGGER OPTIONS:
+  ┌──────────────────────────────────────────────────────────┐
+  │  WhatsApp message  ►─┐                                   │
+  │  Dashboard button  ►─┤──► n8n Workflow Engine            │
+  └──────────────────────┘         │                         │
+                                   │                         │
+                    ┌──────────────▼──────────────────┐      │
+                    │   n8n orchestrates:             │      │
+                    │   1. Trigger scraper run        │      │
+                    │   2. Run pipeline               │      │
+                    │   3. Run NLP + analysis         │      │
+                    │   4. Refresh dashboard          │      │
+                    │   5. Send output via:           │      │
+                    │      • WhatsApp reply           │      │
+                    │      • Email report             │      │
+                    │      • Slack notification       │      │
+                    │      • Dashboard download       │      │
+                    └─────────────────────────────────┘
+
+Trigger A — WhatsApp: A client sends a WhatsApp message (e.g. "Analyse Atomberg Renesa+"). n8n picks this up via a WhatsApp Business API webhook, runs the full pipeline, and sends back a summary or PDF.
+Trigger B — Dashboard button: A button on the visual dashboard sends a request to n8n, which orchestrates the scraper + pipeline run and refreshes the dashboard when done.
+Output options for automation:
+Reply to WhatsApp with a summary card
+Email the full PDF report to configured addresses
+Post a Slack notification with the decay alert
+Make the report available for manual download from the dashboard
+Status: Core system (scraper → pipeline → NLP → analysis → API → dashboard) is built and working. The n8n automation layer is the planned next phase, adding delivery channels without changing any of the core analysis logic.
+
+Tech Stack
+Layer
+Technology
+Why
+Scraping
+Scrapy + BeautifulSoup4
+Scrapy for Scrapy's retry/backoff; BS4 because Flipkart uses dynamic CSS
+Text cleaning
+ftfy, symspellpy, emoji-lib
+Industry standards for Unicode repair and edit-distance spelling correction
+Indian languages
+indic-transliteration + langdetect
+Handles Devanagari script in Hinglish reviews
+Deduplication
+SHA-256 + MinHashLSH
+Exact and near-exact duplicate removal with configurable Jaccard threshold
+NLP / Sentiment
+nlptown/bert-base-multilingual-uncased-sentiment
+Multilingual, handles English + Hindi + Hinglish natively
+Complaint similarity
+all-MiniLM-L6-v2
+Fast, small, production-quality sentence embeddings
+Clustering
+DBSCAN (sklearn) + silhouette auto-tune
+Density-based: handles non-spherical clusters and noise natively
+Time-series
+statsmodels ARIMA + pmdarima
+AIC-based auto order selection; ADF stationarity test built in
+Backend
+FastAPI + PostgreSQL 13
+FastAPI for async + auto-docs; PostgreSQL for ACID reliability
+Caching
+Redis 7
+Hot API responses cached, reduces DB load on live demo
+Frontend
+React 18 + Vite + TypeScript
+Fast builds; TypeScript for reliable API contracts
+Charts
+D3.js + Recharts + Framer Motion
+D3 for the custom decay curve; Recharts for standard charts
+Styling
+Tailwind CSS
+Rapid iteration on the dashboard UI
+PDF Export
+WeasyPrint
+Server-side HTML → PDF without a headless browser
+Containerisation
+Docker Compose
+PostgreSQL + Redis spun up in one command
+Future automation
+n8n
+Self-hosted, no per-event cost, visual workflow builder
+
+
+Data Integrity Principles
+These are the non-negotiables that were built into the system from the start:
+No invented purchase dates. We use product launch date as the anchor for time calculations. This is stated clearly in the code and in this document.
+No synthetic reviews in the analysis. The demo CSV is a fallback for when the scraper cannot run. It is never mixed with live scraped data silently. The system always tells you which data source it used (live / cache / demo).
+Nothing is silently dropped. Bot-flagged reviews go to reviews_flagged. Sarcastic/ambiguous reviews go to reviews_needs_review. Both are queryable via the API. You can always ask "what did you throw away and why?"
+Low-sample honesty. When a time cohort has fewer than 30 reviews, it is flagged LOW_SAMPLE on the dashboard. When fewer than 4 cohort points exist, ARIMA is not run and the result is tagged insufficient_data.
+Reproducibility. All cohort windows, feature tags, tier weights, and thresholds are in config.py. Nothing is hardcoded in the analysis logic itself.
+
+Database Tables (Quick Reference)
+Table
+Purpose
+reviews_raw
+Every scraped review, exactly as received. Never modified.
+reviews_clean
+After preprocessing, dedup, and bot filtering. Has cohort assigned.
+reviews_analyzed
+After NLP: one row per (review, feature_tag) pair with sentiment + confidence.
+reviews_flagged
+Bot/spam reviews. Queryable, never in analysis.
+reviews_needs_review
+Sarcasm/ambiguity quarantine. Queryable, never forced into bins.
+cohort_stats
+Precomputed CIS scores per (product, cohort, feature). What the API reads.
+
+
+Project Structure
+claimcheck/
+├── scraper/           Amazon + Flipkart scrapers, orchestrator
+├── pipeline/          Preprocessor, deduplicator, bot detector, cohort assigner
+├── nlp/               BERT ABSA, sarcasm detector, run scripts
+├── decay/             CIS calculator, ARIMA engine, batch-delta, complaint cluster
+├── api/               FastAPI app + 7 route groups
+├── alerts/            Slack webhook and email alert senders
+├── db/                Schema (schema.sql), models, connection pool, seed script
+├── frontend/          React 18 + Vite dashboard
+├── config.py          All constants: product config, cohort windows, feature tags, thresholds
+├── contracts.py       Shared data types used across all layers
+├── docker-compose.yml PostgreSQL 13 + Redis 7
+└── start_demo.sh      One-command demo startup
+
+
+How to Run
+One command (demo mode — uses cached Atomberg data, no scraping needed):
+cp .env.example .env
+./start_demo.sh --demo-mode
+
+Full stack:
+docker compose up -d                        # start PostgreSQL + Redis
+python3 scraper/run_scraper.py              # scrape reviews
+python3 pipeline/run_pipeline.py            # clean + dedup + assign cohorts
+python3 nlp/run_absa.py                     # NLP inference
+python3 decay/run_cis.py                    # compute CIS scores
+python3 decay/run_arima.py                  # ARIMA decay detection
+uvicorn api.main:app --port 8000 --reload   # start API
+cd frontend && npm run dev                   # start dashboard (localhost:5173)
+
+Skip scraping (offline / cached data):
+python3 scraper/run_scraper.py --offline
+
+
+Sample Output — Atomberg Renesa+ BLDC Fan
+Feature
+Month 1
+Month 6
+Month 12
+Month 18
+Verdict
+Noise
+91
+87
+71
+47
+🚨 DECAYING — Claim failing
+Power
+88
+85
+82
+79
+✓ STABLE
+Durability
+84
+79
+66
+52
+🚨 DECAYING
+Installation
+76
+74
+73
+71
+✓ STABLE
+
+Noise decay was confirmed at Month 9 with a 2-sigma drop. Aggregate star rating showed no change until Month 15.
+
+PS2 Requirement Coverage
+Requirement
+How we meet it
+Where
+Multi-format review ingestion
+CSV, JSON, plain text, API POST
+api/routes/ingest.py
+Noise and language handling
+symspellpy + emoji-lib + indic-transliteration
+pipeline/preprocessor.py
+Deduplication
+SHA-256 exact + MinHashLSH near-dedup (Jaccard ≥ 0.85)
+pipeline/deduplicator.py
+Bot / spam detection
+6-signal scorer, quarantine to reviews_flagged
+pipeline/bot_detector.py
+Feature-level sentiment
+BERT ABSA, 8 feature tags, confidence per extraction
+nlp/absa_model.py
+Sarcasm and ambiguity handling
+Two-stage detection, never forced into positive/negative
+nlp/sarcasm_detector.py
+Batch-delta trend detection
+Sliding window N=50, delta > 15pp triggers alert
+decay/batch_delta.py
+Anomaly / decay detection
+ARIMA with 2-sigma threshold, ADF stationarity test
+decay/arima_engine.py
+Systemic vs isolated complaints
+Sentence embeddings + DBSCAN + silhouette auto-tune
+decay/complaint_cluster.py
+Visual dashboard
+React + D3 + Recharts, 5 views, animated decay curve
+frontend/src/
+Downloadable report
+WeasyPrint PDF, one-click from dashboard
+api/routes/report.py
+Indian language support
+Multilingual BERT + Hinglish/Devanagari transliteration
+nlp/absa_model.py
+Alerts and notifications
+Slack webhook + email on CIS decay events
+alerts/
+
+
+Team
+Built at Hack Malenadu '26 for PS2: Customer Review Intelligence Platform.
+
+ClaimCheck — because "4.2 stars" doesn't tell you when the fan started making noise.
+
